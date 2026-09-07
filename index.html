@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>地図画像 切り出し・座標埋め込みツール v0.4</title>
+    <title>地図画像 切り出し・座標埋め込みツール v0.5</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
@@ -61,7 +61,6 @@
             border-left: 4px solid #007bff;
         }
         
-        /* --- 修正箇所：Cropperが正常動作するシンプルなコンテナ --- */
         #workspace {
             width: 100%;
             height: 60vh;
@@ -80,13 +79,12 @@
         #imageContainer {
             width: 100%;
             height: 100%;
-            display: none; /* 初期は非表示 */
+            display: none; 
         }
         #sourceImage {
             display: block;
-            max-width: 100%; /* Cropper必須要件 */
+            max-width: 100%;
         }
-        /* ----------------------------------------------------- */
 
         input[type="text"], input[type="file"] {
             width: 100%;
@@ -150,7 +148,7 @@
 </head>
 <body>
 
-<div class="header">🗺️ 地図画像 整形・切り出しツール v0.4</div>
+<div class="header">🗺️ 地図画像 整形・切り出しツール v0.5</div>
 
 <div class="container">
     <div class="step-title">1. 画像の読み込み</div>
@@ -205,27 +203,22 @@
 <script>
     let cropper = null;
 
-    // 画像読み込み処理
     document.getElementById('imageInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
 
-        // UIの切り替え（プレースホルダーを消して、画像コンテナを表示）
         document.getElementById('placeholderText').style.display = 'none';
         document.getElementById('imageContainer').style.display = 'block';
 
         const img = document.getElementById('sourceImage');
         
-        // 古いCropperがあれば破棄
         if (cropper) { 
             cropper.destroy(); 
             cropper = null;
         }
 
-        // URLを生成
         const objectUrl = URL.createObjectURL(file);
 
-        // 画像が完全に読み込まれて、幅・高さが確定した後にCropperを起動
         img.onload = function() {
             cropper = new Cropper(img, {
                 viewMode: 1,
@@ -233,14 +226,12 @@
                 background: true,
                 zoomable: true,
                 ready: function() {
-                    // 切り抜きツール準備完了後にOCRを実行
                     performOCR(objectUrl);
                 }
             });
-            img.onload = null; // ループ防止
+            img.onload = null; 
         };
         
-        // 読み込み実行
         img.src = objectUrl;
         document.getElementById('btnOcr').disabled = false;
     });
@@ -255,10 +246,35 @@
         statusEl.style.color = '#007bff';
         
         try {
+            // 【改良1】文字が小さい画像に対応するため、Canvasで内部的に2.5倍に拡大する前処理を追加
+            const tempImg = new Image();
+            tempImg.src = imageSrc;
+            await new Promise(r => tempImg.onload = r);
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const scale = 2.5; // 画像を拡大
+            canvas.width = tempImg.width * scale;
+            canvas.height = tempImg.height * scale;
+            
+            // 白背景で塗りつぶす（透過PNG対策およびコントラスト確保）
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+            
+            // 前処理済みの画像データを生成
+            const processedSrc = canvas.toDataURL('image/jpeg', 1.0);
+
+            // Tesseractの初期化
             const worker = await Tesseract.createWorker('eng');
             
-            // 画像データを渡す
-            const ret = await worker.recognize(imageSrc);
+            // 【改良2】読み取り対象を「数字」「ピリオド」「カンマ」「スペース」だけに制限。地形図のノイズを文字と誤認するのを防ぐ。
+            await worker.setParameters({
+                tessedit_char_whitelist: '0123456789., '
+            });
+            
+            // 前処理済みの画像を読み込ませる
+            const ret = await worker.recognize(processedSrc);
             const text = ret.data.text;
             await worker.terminate();
             
@@ -289,8 +305,9 @@
                 statusEl.innerHTML = '✨ 座標の読み取りに成功しました。ズレがないか確認してください。';
                 statusEl.style.color = '#28a745';
             } else {
-                statusEl.innerHTML = '⚠️ 座標を自動検出できませんでした。画像が不鮮明な可能性があります。手入力してください。';
+                statusEl.innerHTML = '⚠️ 座標を自動検出できませんでした。手入力してください。';
                 statusEl.style.color = '#d9534f';
+                console.log("OCR読み取り結果（デバッグ用）:", text);
             }
         } catch (err) {
             console.error(err);
@@ -301,7 +318,6 @@
         }
     }
 
-    // 再読み取りボタン
     document.getElementById('btnOcr').addEventListener('click', function() {
         const img = document.getElementById('sourceImage');
         if (img && img.src) {
@@ -309,7 +325,6 @@
         }
     });
 
-    // 切り出し＆EXIF保存 (piexif.js)
     document.getElementById('btnDownload').addEventListener('click', function() {
         if (!cropper) {
             alert("先に画像を読み込んでください。");
@@ -326,32 +341,25 @@
             return;
         }
         
-        // クロップ枠内の画像をCanvasとして取得
         const canvas = cropper.getCroppedCanvas({
             imageSmoothingEnabled: true,
             imageSmoothingQuality: 'high'
         });
         
-        // JPEG形式でデータ化
         const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.95);
         
         try {
-            // 林小班図アプリ互換の coordsString フォーマット
             const coordsString = `${south},${west},${north},${east}`;
             
-            // EXIF情報を生成
             const zeroth = {};
             zeroth[piexif.ImageIFD.ImageDescription] = coordsString;
             const exifObj = {"0th": zeroth, "Exif": {}, "GPS": {}};
             const exifBytes = piexif.dump(exifObj);
             
-            // JPEGデータにEXIFを埋め込む
             const newDataUrl = piexif.insert(exifBytes, jpegDataUrl);
             
-            // ダウンロード用ファイル名 (例: map_35.92_136.61_35.93_136.62.jpg)
             const filename = `map_${south}_${west}_${north}_${east}.jpg`;
             
-            // 仮想リンクを作ってダウンロードを発火
             const link = document.createElement('a');
             link.download = filename;
             link.href = newDataUrl;
