@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>地図画像 切り出し・座標埋め込みツール v0.5</title>
+    <title>地図画像 切り出し・座標埋め込みツール v0.6</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
@@ -148,10 +148,10 @@
 </head>
 <body>
 
-<div class="header">🗺️ 地図画像 整形・切り出しツール v0.5</div>
+<div class="header">🗺️ 地図画像 整形・切り出しツール v0.6</div>
 
 <div class="container">
-    <div class="step-title">1. 画像の読み込み（緯度経度の文字を大きめにしてください）</div>
+    <div class="step-title">1. 画像の読み込み</div>
     <input type="file" id="imageInput" accept="image/jpeg, image/png, image/webp">
 
     <div class="flex-container">
@@ -236,49 +236,64 @@
         document.getElementById('btnOcr').disabled = false;
     });
 
-    // 座標の自動読み取り (Tesseract.js v5)
+    // 座標の自動読み取り (四隅ピンポイントOCR版 v0.6)
     async function performOCR(imageSrc) {
         const statusEl = document.getElementById('ocrStatus');
         const btnOcr = document.getElementById('btnOcr');
         
         btnOcr.disabled = true;
-        statusEl.innerHTML = '<span class="loading-spinner"></span> 画像から座標を自動読み取り中... (数十秒かかる場合があります)';
+        statusEl.innerHTML = '<span class="loading-spinner"></span> 画像の四隅を切り出して座標を解析中...';
         statusEl.style.color = '#007bff';
         
         try {
-            // 【改良1】文字が小さい画像に対応するため、Canvasで内部的に2.5倍に拡大する前処理を追加
             const tempImg = new Image();
             tempImg.src = imageSrc;
             await new Promise(r => tempImg.onload = r);
 
+            // 【改良3】画像の四隅だけを切り出して1つのキャンバスにまとめる
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            const scale = 2.5; // 画像を拡大
-            canvas.width = tempImg.width * scale;
-            canvas.height = tempImg.height * scale;
+            const scale = 2.5; // 小さい文字を読みやすくするための拡大率
             
-            // 白背景で塗りつぶす（透過PNG対策およびコントラスト確保）
+            // 切り出す範囲の割合（左右30%、上下12%）※スキャンやスクショでのズレを吸収できる広さ
+            const cropW = tempImg.width * 0.30;
+            const cropH = tempImg.height * 0.12;
+            
+            // キャンバスのサイズ設定（4つの画像を縦に並べる）
+            canvas.width = cropW * scale;
+            canvas.height = (cropH * 4) * scale;
+            
+            // 白背景で塗りつぶす
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
             
-            // 前処理済みの画像データを生成
+            // 元画像から四隅を切り取って、キャンバスに縦に並べて描画
+            // 1. 左上
+            ctx.drawImage(tempImg, 0, 0, cropW, cropH, 0, 0, cropW * scale, cropH * scale);
+            // 2. 右上
+            ctx.drawImage(tempImg, tempImg.width - cropW, 0, cropW, cropH, 0, cropH * scale, cropW * scale, cropH * scale);
+            // 3. 左下
+            ctx.drawImage(tempImg, 0, tempImg.height - cropH, cropW, cropH, 0, cropH * 2 * scale, cropW * scale, cropH * scale);
+            // 4. 右下
+            ctx.drawImage(tempImg, tempImg.width - cropW, tempImg.height - cropH, cropW, cropH, 0, cropH * 3 * scale, cropW * scale, cropH * scale);
+            
+            // 前処理済みのノイズなし画像を生成
             const processedSrc = canvas.toDataURL('image/jpeg', 1.0);
 
             // Tesseractの初期化
             const worker = await Tesseract.createWorker('eng');
             
-            // 【改良2】読み取り対象を「数字」「ピリオド」「カンマ」「スペース」だけに制限。地形図のノイズを文字と誤認するのを防ぐ。
+            // 数字と記号のみに制限
             await worker.setParameters({
                 tessedit_char_whitelist: '0123456789., '
             });
             
-            // 前処理済みの画像を読み込ませる
+            // 四隅だけが繋がった画像を読み込ませる
             const ret = await worker.recognize(processedSrc);
             const text = ret.data.text;
             await worker.terminate();
             
-            // OCRの誤認識（カンマや空白）に強くした正規表現
+            // カンマや空白などの誤認識に強い正規表現
             const regex = /(\d{2,3})[\.\,]\s?(\d{4,})/g;
             let match;
             const coords = [];
