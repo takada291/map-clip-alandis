@@ -148,7 +148,7 @@
 </head>
 <body>
 
-<div class="header">🗺️ 地図画像 整形・切り出しツール v0.9</div>
+<div class="header">🗺️ 地図画像 整形・切り出しツール v1.0</div>
 
 <div class="container">
     <div class="step-title">1. 画像の読み込み (A4横に限定)</div>
@@ -230,9 +230,9 @@
                     
                     // A4横印刷時の黒枠の位置（パーセント）を指定
                     const cropX = imageData.naturalWidth * 0.045;     // 左から約4%
-                    const cropY = imageData.naturalHeight * 0.129;   // 上から約12.8%
+                    const cropY = imageData.naturalHeight * 0.130;   // 上から約12.8%
                     const cropW = imageData.naturalWidth * 0.91;     // 幅は約92%
-                    const cropH = imageData.naturalHeight * 0.75;    // 高さは約77%
+                    const cropH = imageData.naturalHeight * 0.78;    // 高さは約77%
                     
                     cropper.setData({
                         x: Math.round(cropX),
