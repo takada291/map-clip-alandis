@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>地図画像 切り出し・座標埋め込みツール v0.6</title>
+    <title>地図画像 切り出し・座標埋め込みツール v0.7</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
@@ -148,10 +148,10 @@
 </head>
 <body>
 
-<div class="header">🗺️ 地図画像 整形・切り出しツール v0.6</div>
+<div class="header">🗺️ 地図画像 整形・切り出しツール v0.7</div>
 
 <div class="container">
-    <div class="step-title">1. 画像の読み込み（A4横に限定）</div>
+    <div class="step-title">1. 画像の読み込み (A4横に限定)</div>
     <input type="file" id="imageInput" accept="image/jpeg, image/png, image/webp">
 
     <div class="flex-container">
@@ -222,10 +222,26 @@
         img.onload = function() {
             cropper = new Cropper(img, {
                 viewMode: 1,
-                autoCropArea: 0.9, 
                 background: true,
                 zoomable: true,
                 ready: function() {
+                    // --- ★追加機能：画像の割合から切り抜き枠を自動設定（キツキツ調整） ---
+                    const imageData = cropper.getImageData();
+                    
+                    // A4横印刷時の黒枠の位置（パーセント）を指定
+                    const cropX = imageData.naturalWidth * 0.04;     // 左から約4%
+                    const cropY = imageData.naturalHeight * 0.128;   // 上から約12.8%
+                    const cropW = imageData.naturalWidth * 0.92;     // 幅は約92%
+                    const cropH = imageData.naturalHeight * 0.77;    // 高さは約77%
+                    
+                    cropper.setData({
+                        x: Math.round(cropX),
+                        y: Math.round(cropY),
+                        width: Math.round(cropW),
+                        height: Math.round(cropH)
+                    });
+                    // ----------------------------------------------------------------
+                    
                     performOCR(objectUrl);
                 }
             });
@@ -236,7 +252,7 @@
         document.getElementById('btnOcr').disabled = false;
     });
 
-    // 座標の自動読み取り (四隅ピンポイントOCR版 v0.6)
+    // 座標の自動読み取り (四隅ピンポイントOCR版)
     async function performOCR(imageSrc) {
         const statusEl = document.getElementById('ocrStatus');
         const btnOcr = document.getElementById('btnOcr');
@@ -250,50 +266,38 @@
             tempImg.src = imageSrc;
             await new Promise(r => tempImg.onload = r);
 
-            // 【改良3】画像の四隅だけを切り出して1つのキャンバスにまとめる
+            // 画像の四隅だけを切り出して1つのキャンバスにまとめる
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            const scale = 2.5; // 小さい文字を読みやすくするための拡大率
+            const scale = 2.5; 
             
-            // 切り出す範囲の割合（左右30%、上下12%）※スキャンやスクショでのズレを吸収できる広さ
+            // 切り出す範囲の割合（左右30%、上下12%）
             const cropW = tempImg.width * 0.30;
             const cropH = tempImg.height * 0.12;
             
-            // キャンバスのサイズ設定（4つの画像を縦に並べる）
             canvas.width = cropW * scale;
             canvas.height = (cropH * 4) * scale;
             
-            // 白背景で塗りつぶす
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // 元画像から四隅を切り取って、キャンバスに縦に並べて描画
-            // 1. 左上
             ctx.drawImage(tempImg, 0, 0, cropW, cropH, 0, 0, cropW * scale, cropH * scale);
-            // 2. 右上
             ctx.drawImage(tempImg, tempImg.width - cropW, 0, cropW, cropH, 0, cropH * scale, cropW * scale, cropH * scale);
-            // 3. 左下
             ctx.drawImage(tempImg, 0, tempImg.height - cropH, cropW, cropH, 0, cropH * 2 * scale, cropW * scale, cropH * scale);
-            // 4. 右下
             ctx.drawImage(tempImg, tempImg.width - cropW, tempImg.height - cropH, cropW, cropH, 0, cropH * 3 * scale, cropW * scale, cropH * scale);
             
-            // 前処理済みのノイズなし画像を生成
             const processedSrc = canvas.toDataURL('image/jpeg', 1.0);
 
-            // Tesseractの初期化
             const worker = await Tesseract.createWorker('eng');
             
-            // 数字と記号のみに制限
             await worker.setParameters({
                 tessedit_char_whitelist: '0123456789., '
             });
             
-            // 四隅だけが繋がった画像を読み込ませる
             const ret = await worker.recognize(processedSrc);
             const text = ret.data.text;
             await worker.terminate();
             
-            // カンマや空白などの誤認識に強い正規表現
             const regex = /(\d{2,3})[\.\,]\s?(\d{4,})/g;
             let match;
             const coords = [];
@@ -302,7 +306,6 @@
                 coords.push(parseFloat(match[1] + "." + match[2]));
             }
             
-            // 緯度（30度台）と経度（130度台）に振り分け
             const lats = coords.filter(c => c > 20 && c < 50);
             const lons = coords.filter(c => c > 120 && c < 150);
             
